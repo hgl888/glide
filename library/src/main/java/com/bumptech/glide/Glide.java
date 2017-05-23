@@ -16,6 +16,7 @@ import android.support.annotation.VisibleForTesting;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
 import android.util.Log;
+import android.view.View;
 import com.bumptech.glide.gifdecoder.GifDecoder;
 import com.bumptech.glide.load.DecodeFormat;
 import com.bumptech.glide.load.data.InputStreamRewinder;
@@ -48,6 +49,7 @@ import com.bumptech.glide.load.resource.bitmap.BitmapDrawableDecoder;
 import com.bumptech.glide.load.resource.bitmap.BitmapDrawableEncoder;
 import com.bumptech.glide.load.resource.bitmap.BitmapEncoder;
 import com.bumptech.glide.load.resource.bitmap.ByteBufferBitmapDecoder;
+import com.bumptech.glide.load.resource.bitmap.DefaultImageHeaderParser;
 import com.bumptech.glide.load.resource.bitmap.Downsampler;
 import com.bumptech.glide.load.resource.bitmap.StreamBitmapDecoder;
 import com.bumptech.glide.load.resource.bitmap.VideoBitmapDecoder;
@@ -68,13 +70,17 @@ import com.bumptech.glide.module.ManifestParser;
 import com.bumptech.glide.request.RequestOptions;
 import com.bumptech.glide.request.target.ImageViewTargetFactory;
 import com.bumptech.glide.request.target.Target;
+import com.bumptech.glide.util.Preconditions;
 import com.bumptech.glide.util.Util;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * A singleton to present a simple static interface for building requests with
@@ -94,6 +100,7 @@ public class Glide implements ComponentCallbacks2 {
   private final GlideContext glideContext;
   private final Registry registry;
   private final ArrayPool arrayPool;
+  private final RequestManagerRetriever requestManagerRetriever;
   private final ConnectivityMonitorFactory connectivityMonitorFactory;
   private final List<RequestManager> managers = new ArrayList<>();
   private MemoryCategory memoryCategory = MemoryCategory.NORMAL;
@@ -144,17 +151,7 @@ public class Glide implements ComponentCallbacks2 {
     if (glide == null) {
       synchronized (Glide.class) {
         if (glide == null) {
-          Context applicationContext = context.getApplicationContext();
-          List<GlideModule> modules = new ManifestParser(applicationContext).parse();
-
-          GlideBuilder builder = new GlideBuilder(applicationContext);
-          for (GlideModule module : modules) {
-            module.applyOptions(applicationContext, builder);
-          }
-          glide = builder.createGlide();
-          for (GlideModule module : modules) {
-            module.registerComponents(applicationContext, glide.registry);
-          }
+          initGlide(context);
         }
       }
     }
@@ -163,8 +160,93 @@ public class Glide implements ComponentCallbacks2 {
   }
 
   @VisibleForTesting
+  public static void init(Glide glide) {
+    Glide.glide = glide;
+  }
+
+  @VisibleForTesting
   public static void tearDown() {
     glide = null;
+  }
+
+  @SuppressWarnings("deprecation")
+  private static void initGlide(Context context) {
+    Context applicationContext = context.getApplicationContext();
+
+    GeneratedAppGlideModule annotationGeneratedModule = getAnnotationGeneratedGlideModules();
+    List<GlideModule> manifestModules = Collections.emptyList();
+    if (annotationGeneratedModule == null || annotationGeneratedModule.isManifestParsingEnabled()) {
+      manifestModules = new ManifestParser(applicationContext).parse();
+    }
+
+    if (annotationGeneratedModule != null
+        && !annotationGeneratedModule.getExcludedModuleClasses().isEmpty()) {
+      Set<Class<?>> excludedModuleClasses =
+          annotationGeneratedModule.getExcludedModuleClasses();
+      for (Iterator<GlideModule> iterator = manifestModules.iterator(); iterator.hasNext();) {
+        GlideModule current = iterator.next();
+        if (!excludedModuleClasses.contains(current.getClass())) {
+          continue;
+        }
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+          Log.d(TAG, "AppGlideModule excludes manifest GlideModule: " + current);
+        }
+        iterator.remove();
+      }
+    }
+
+    if (Log.isLoggable(TAG, Log.DEBUG)) {
+      for (GlideModule glideModule : manifestModules) {
+        Log.d(TAG, "Discovered GlideModule from manifest: " + glideModule.getClass());
+      }
+    }
+
+    RequestManagerRetriever.RequestManagerFactory factory =
+        annotationGeneratedModule != null
+            ? annotationGeneratedModule.getRequestManagerFactory() : null;
+    GlideBuilder builder = new GlideBuilder()
+        .setRequestManagerFactory(factory);
+    for (GlideModule module : manifestModules) {
+      module.applyOptions(applicationContext, builder);
+    }
+    if (annotationGeneratedModule != null) {
+      annotationGeneratedModule.applyOptions(applicationContext, builder);
+    }
+    glide = builder.build(applicationContext);
+    for (GlideModule module : manifestModules) {
+      module.registerComponents(applicationContext, glide.registry);
+    }
+    if (annotationGeneratedModule != null) {
+      annotationGeneratedModule.registerComponents(applicationContext, glide.registry);
+    }
+  }
+
+  @Nullable
+  @SuppressWarnings({"unchecked", "deprecation"})
+  private static GeneratedAppGlideModule getAnnotationGeneratedGlideModules() {
+    GeneratedAppGlideModule result = null;
+    try {
+      Class<GeneratedAppGlideModule> clazz =
+          (Class<GeneratedAppGlideModule>)
+              Class.forName("com.bumptech.glide.GeneratedAppGlideModuleImpl");
+      result = clazz.newInstance();
+    } catch (ClassNotFoundException e) {
+      if (Log.isLoggable(TAG, Log.WARN)) {
+        Log.w(TAG, "Failed to find GeneratedAppGlideModule. You should include an"
+            + " annotationProcessor compile dependency on com.github.bumptech.glide:glide:compiler"
+            + " in your application and a @GlideModule annotated AppGlideModule implementation or"
+            + " LibraryGlideModules will be silently ignored");
+      }
+    } catch (InstantiationException e) {
+      throw new IllegalStateException("GeneratedAppGlideModuleImpl is implemented incorrectly."
+          + " If you've manually implemented this class, remove your implementation. The Annotation"
+          + " processor will generate a correct implementation.", e);
+    } catch (IllegalAccessException e) {
+      throw new IllegalStateException("GeneratedAppGlideModuleImpl is implemented incorrectly."
+          + " If you've manually implemented this class, remove your implementation. The Annotation"
+          + " processor will generate a correct implementation.", e);
+    }
+    return result;
   }
 
   @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
@@ -174,6 +256,7 @@ public class Glide implements ComponentCallbacks2 {
       MemoryCache memoryCache,
       BitmapPool bitmapPool,
       ArrayPool arrayPool,
+      RequestManagerRetriever requestManagerRetriever,
       ConnectivityMonitorFactory connectivityMonitorFactory,
       int logLevel,
       RequestOptions defaultRequestOptions) {
@@ -181,6 +264,7 @@ public class Glide implements ComponentCallbacks2 {
     this.bitmapPool = bitmapPool;
     this.arrayPool = arrayPool;
     this.memoryCache = memoryCache;
+    this.requestManagerRetriever = requestManagerRetriever;
     this.connectivityMonitorFactory = connectivityMonitorFactory;
 
     DecodeFormat decodeFormat = defaultRequestOptions.getOptions().get(Downsampler.DECODE_FORMAT);
@@ -188,12 +272,15 @@ public class Glide implements ComponentCallbacks2 {
 
     final Resources resources = context.getResources();
 
-    Downsampler downsampler =
-        new Downsampler(resources.getDisplayMetrics(), bitmapPool, arrayPool);
+    registry = new Registry();
+    registry.register(new DefaultImageHeaderParser());
+
+    Downsampler downsampler = new Downsampler(registry.getImageHeaderParsers(),
+        resources.getDisplayMetrics(), bitmapPool, arrayPool);
     ByteBufferGifDecoder byteBufferGifDecoder =
-        new ByteBufferGifDecoder(context, bitmapPool, arrayPool);
-    registry = new Registry()
-        .register(ByteBuffer.class, new ByteBufferEncoder())
+        new ByteBufferGifDecoder(context, registry.getImageHeaderParsers(), bitmapPool, arrayPool);
+
+    registry.register(ByteBuffer.class, new ByteBufferEncoder())
         .register(InputStream.class, new StreamEncoder(arrayPool))
         /* Bitmaps */
         .append(ByteBuffer.class, Bitmap.class,
@@ -214,7 +301,7 @@ public class Glide implements ComponentCallbacks2 {
         .register(BitmapDrawable.class, new BitmapDrawableEncoder(bitmapPool, new BitmapEncoder()))
         /* GIFs */
         .prepend(InputStream.class, GifDrawable.class,
-            new StreamGifDecoder(byteBufferGifDecoder, arrayPool))
+            new StreamGifDecoder(registry.getImageHeaderParsers(), byteBufferGifDecoder, arrayPool))
         .prepend(ByteBuffer.class, GifDrawable.class, byteBufferGifDecoder)
         .register(GifDrawable.class, new GifDrawableEncoder())
         /* GIF Frames */
@@ -385,6 +472,14 @@ public class Glide implements ComponentCallbacks2 {
     engine.clearDiskCache();
   }
 
+
+  /**
+   * Internal method.
+   */
+  public RequestManagerRetriever getRequestManagerRetriever() {
+    return requestManagerRetriever;
+  }
+
   /**
    * Adjusts Glide's current and maximum memory usage based on the given {@link MemoryCategory}.
    *
@@ -406,6 +501,16 @@ public class Glide implements ComponentCallbacks2 {
     MemoryCategory oldCategory = this.memoryCategory;
     this.memoryCategory = memoryCategory;
     return oldCategory;
+  }
+
+  private static RequestManagerRetriever getRetriever(@Nullable Context context) {
+    // Context could be null for other reasons (ie the user passes in null), but in practice it will
+    // only occur due to errors with the Fragment lifecycle.
+    Preconditions.checkNotNull(
+        "You cannot start a load on a not yet attached View or a  Fragment where getActivity() "
+            + "returns null (which usually occurs when getActivity() is called before the Fragment "
+            + "is attached or after the Fragment is destroyed).");
+    return Glide.get(context).getRequestManagerRetriever();
   }
 
   /**
@@ -431,8 +536,7 @@ public class Glide implements ComponentCallbacks2 {
    * @see #with(android.support.v4.app.FragmentActivity)
    */
   public static RequestManager with(Context context) {
-    RequestManagerRetriever retriever = RequestManagerRetriever.get();
-    return retriever.get(context);
+    return getRetriever(context).get(context);
   }
 
   /**
@@ -443,8 +547,7 @@ public class Glide implements ComponentCallbacks2 {
    * @return A RequestManager for the given activity that can be used to start a load.
    */
   public static RequestManager with(Activity activity) {
-    RequestManagerRetriever retriever = RequestManagerRetriever.get();
-    return retriever.get(activity);
+    return getRetriever(activity).get(activity);
   }
 
   /**
@@ -456,8 +559,7 @@ public class Glide implements ComponentCallbacks2 {
    * @return A RequestManager for the given FragmentActivity that can be used to start a load.
    */
   public static RequestManager with(FragmentActivity activity) {
-    RequestManagerRetriever retriever = RequestManagerRetriever.get();
-    return retriever.get(activity);
+    return getRetriever(activity).get(activity);
   }
 
   /**
@@ -467,10 +569,8 @@ public class Glide implements ComponentCallbacks2 {
    * @param fragment The fragment to use.
    * @return A RequestManager for the given Fragment that can be used to start a load.
    */
-  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
   public static RequestManager with(android.app.Fragment fragment) {
-    RequestManagerRetriever retriever = RequestManagerRetriever.get();
-    return retriever.get(fragment);
+    return getRetriever(fragment.getActivity()).get(fragment);
   }
 
   /**
@@ -482,8 +582,31 @@ public class Glide implements ComponentCallbacks2 {
    * @return A RequestManager for the given Fragment that can be used to start a load.
    */
   public static RequestManager with(Fragment fragment) {
-    RequestManagerRetriever retriever = RequestManagerRetriever.get();
-    return retriever.get(fragment);
+    return getRetriever(fragment.getActivity()).get(fragment);
+  }
+
+  /**
+   * Begin a load with Glide that will be tied to the lifecycle of the {@link Fragment},
+   * {@link android.app.Fragment}, or {@link Activity} that contains the View.
+   *
+   * <p>A {@link Fragment} or {@link android.app.Fragment} is assumed to contain a View if the View
+   * is a child of the View returned by the {@link Fragment#getView()}} method.
+   *
+   * <p>This method will not work if the View is not attached. Prefer the Activity and Fragment
+   * variants unless you're loading in a View subclass.
+   *
+   * <p>This method may be inefficient for large hierarchies. Consider memoizing the result after
+   * the View is attached.
+   *
+   * <p>When used in Applications that use the non-support {@link android.app.Fragment} classes,
+   * calling this method will produce noisy logs from {@link android.app.FragmentManager}. Consider
+   * avoiding entirely or using the {@link Fragment}s from the support library instead.
+   *
+   * @param view The view to search for a containing Fragment or Activity from.
+   * @return A RequestManager that can be used to start a load.
+   */
+  public static RequestManager with(View view) {
+    return getRetriever(view.getContext()).get(view);
   }
 
   public Registry getRegistry() {

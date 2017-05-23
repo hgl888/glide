@@ -28,9 +28,7 @@ import static com.bumptech.glide.gifdecoder.GifFrame.DISPOSAL_NONE;
 import static com.bumptech.glide.gifdecoder.GifFrame.DISPOSAL_PREVIOUS;
 import static com.bumptech.glide.gifdecoder.GifFrame.DISPOSAL_UNSPECIFIED;
 
-import android.annotation.TargetApi;
 import android.graphics.Bitmap;
-import android.os.Build;
 import android.support.annotation.ColorInt;
 import android.support.annotation.Nullable;
 import android.util.Log;
@@ -202,7 +200,26 @@ public class StandardGifDecoder implements GifDecoder {
 
   @Override
   public int getLoopCount() {
+    if (header.loopCount == GifHeader.NETSCAPE_LOOP_COUNT_DOES_NOT_EXIST) {
+      return 1;
+    }
     return header.loopCount;
+  }
+
+  @Override
+  public int getNetscapeLoopCount() {
+    return header.loopCount;
+  }
+
+  @Override
+  public int getTotalIterationCount() {
+    if (header.loopCount == GifHeader.NETSCAPE_LOOP_COUNT_DOES_NOT_EXIST) {
+      return 1;
+    }
+    if (header.loopCount == GifHeader.NETSCAPE_LOOP_COUNT_FOREVER) {
+      return TOTAL_ITERATION_COUNT_FOREVER;
+    }
+    return header.loopCount + 1;
   }
 
   @Override
@@ -763,14 +780,7 @@ public class StandardGifDecoder implements GifDecoder {
     Bitmap.Config config = isFirstFrameTransparent
         ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
     Bitmap result = bitmapProvider.obtain(downsampledWidth, downsampledHeight, config);
-    setAlpha(result);
+    result.setHasAlpha(true);
     return result;
-  }
-
-  @TargetApi(Build.VERSION_CODES.HONEYCOMB_MR1)
-  private static void setAlpha(Bitmap bitmap) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB_MR1) {
-      bitmap.setHasAlpha(true);
-    }
   }
 }

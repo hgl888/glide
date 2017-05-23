@@ -77,8 +77,8 @@ import org.robolectric.annotation.Config;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
 import org.robolectric.annotation.Resetter;
-import org.robolectric.internal.ShadowExtractor;
 import org.robolectric.res.builder.RobolectricPackageManager;
+import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowBitmap;
 
 /**
@@ -89,7 +89,7 @@ import org.robolectric.shadows.ShadowBitmap;
     GlideTest.ShadowFileDescriptorContentResolver.class,
     GlideTest.ShadowMediaMetadataRetriever.class, GlideShadowLooper.class,
     GlideTest.MutableShadowBitmap.class })
-@SuppressWarnings("unchecked")
+@SuppressWarnings({"unchecked", "deprecation"})
 public class GlideTest {
   @SuppressWarnings("rawtypes")
   private Target target = null;
@@ -100,8 +100,7 @@ public class GlideTest {
   public void setUp() throws Exception {
     Glide.tearDown();
 
-    RobolectricPackageManager pm =
-        (RobolectricPackageManager) RuntimeEnvironment.application.getPackageManager();
+    RobolectricPackageManager pm = RuntimeEnvironment.getRobolectricPackageManager();
     ApplicationInfo info =
         pm.getApplicationInfo(RuntimeEnvironment.application.getPackageName(), 0);
     info.metaData = new Bundle();
@@ -111,6 +110,7 @@ public class GlideTest {
     target = mock(Target.class);
     imageView = new ImageView(RuntimeEnvironment.application);
     imageView.setLayoutParams(new ViewGroup.LayoutParams(100, 100));
+    imageView.layout(0, 0, 100, 100);
     doAnswer(new CallSizeReady()).when(target).getSize(isA(SizeReadyCallback.class));
 
     Handler bgHandler = mock(Handler.class);
@@ -141,8 +141,8 @@ public class GlideTest {
 
     MemoryCategory memoryCategory = MemoryCategory.NORMAL;
     Glide glide =
-        new GlideBuilder(getContext()).setMemoryCache(memoryCache).setBitmapPool(bitmapPool)
-            .createGlide();
+        new GlideBuilder().setMemoryCache(memoryCache).setBitmapPool(bitmapPool)
+            .build(getContext());
     glide.setMemoryCategory(memoryCategory);
 
     verify(memoryCache).setSizeMultiplier(eq(memoryCategory.getMultiplier()));
@@ -155,8 +155,8 @@ public class GlideTest {
     MemoryCache memoryCache = mock(MemoryCache.class);
 
     Glide glide =
-        new GlideBuilder(getContext()).setBitmapPool(bitmapPool).setMemoryCache(memoryCache)
-            .createGlide();
+        new GlideBuilder().setBitmapPool(bitmapPool).setMemoryCache(memoryCache)
+            .build(getContext());
 
     glide.clearMemory();
 
@@ -170,8 +170,8 @@ public class GlideTest {
     MemoryCache memoryCache = mock(MemoryCache.class);
 
     Glide glide =
-        new GlideBuilder(getContext()).setBitmapPool(bitmapPool).setMemoryCache(memoryCache)
-            .createGlide();
+        new GlideBuilder().setBitmapPool(bitmapPool).setMemoryCache(memoryCache)
+            .build(getContext());
 
     final int level = 123;
 
@@ -579,7 +579,7 @@ public class GlideTest {
     }
     ContentResolver contentResolver = RuntimeEnvironment.application.getContentResolver();
     ShadowFileDescriptorContentResolver shadowContentResolver =
-        (ShadowFileDescriptorContentResolver) ShadowExtractor.extract(contentResolver);
+        (ShadowFileDescriptorContentResolver) Shadow.extract(contentResolver);
     shadowContentResolver.registerInputStream(uri, is);
 
     AssetFileDescriptor assetFileDescriptor = mock(AssetFileDescriptor.class);

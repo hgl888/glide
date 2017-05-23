@@ -3,7 +3,6 @@ package com.bumptech.glide.load.resource.gif;
 import static com.bumptech.glide.request.RequestOptions.diskCacheStrategyOf;
 import static com.bumptech.glide.request.RequestOptions.signatureOf;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.Looper;
@@ -32,13 +31,13 @@ import java.util.UUID;
 class GifFrameLoader {
   private final GifDecoder gifDecoder;
   private final Handler handler;
-  private final Context context;
   private final List<FrameCallback> callbacks = new ArrayList<>();
   @Synthetic final RequestManager requestManager;
   private final BitmapPool bitmapPool;
 
   private boolean isRunning = false;
   private boolean isLoadPending = false;
+  private boolean startFromFirstFrame = false;
   private RequestBuilder<Bitmap> requestBuilder;
   private DelayTarget current;
   private boolean isCleared;
@@ -58,7 +57,6 @@ class GifFrameLoader {
       Transformation<Bitmap> transformation,
       Bitmap firstFrame) {
     this(
-        glide.getContext(),
         glide.getBitmapPool(),
         Glide.with(glide.getContext()),
         gifDecoder,
@@ -70,7 +68,6 @@ class GifFrameLoader {
 
   @SuppressWarnings("PMD.ConstructorCallsOverridableMethod")
   GifFrameLoader(
-      Context context,
       BitmapPool bitmapPool,
       RequestManager requestManager,
       GifDecoder gifDecoder,
@@ -82,7 +79,6 @@ class GifFrameLoader {
     if (handler == null) {
       handler = new Handler(Looper.getMainLooper(), new FrameLoaderCallback());
     }
-    this.context = context;
     this.bitmapPool = bitmapPool;
     this.handler = handler;
     this.requestBuilder = requestBuilder;
@@ -95,7 +91,7 @@ class GifFrameLoader {
   void setFrameTransformation(Transformation<Bitmap> transformation, Bitmap firstFrame) {
     this.transformation = Preconditions.checkNotNull(transformation);
     this.firstFrame = Preconditions.checkNotNull(firstFrame);
-    requestBuilder = requestBuilder.apply(new RequestOptions().transform(context, transformation));
+    requestBuilder = requestBuilder.apply(new RequestOptions().transform(transformation));
   }
 
   Transformation<Bitmap> getFrameTransformation() {
@@ -157,7 +153,7 @@ class GifFrameLoader {
   }
 
   int getLoopCount() {
-    return gifDecoder.getLoopCount();
+    return gifDecoder.getTotalIterationCount();
   }
 
   private void start() {
@@ -198,6 +194,10 @@ class GifFrameLoader {
     if (!isRunning || isLoadPending) {
       return;
     }
+    if (startFromFirstFrame) {
+      gifDecoder.resetFrameIndex();
+      startFromFirstFrame = false;
+    }
     isLoadPending = true;
     // Get the delay before incrementing the pointer because the delay indicates the amount of time
     // we want to spend on the current frame.
@@ -214,6 +214,11 @@ class GifFrameLoader {
       bitmapPool.put(firstFrame);
       firstFrame = null;
     }
+  }
+
+  void setNextStartFromFirstFrame() {
+    Preconditions.checkArgument(!isRunning, "Can't restart a running animation");
+    startFromFirstFrame = true;
   }
 
   // Visible for testing.

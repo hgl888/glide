@@ -1,6 +1,7 @@
 package com.bumptech.glide.load.resource.gif;
 
-import android.annotation.TargetApi;
+import static com.bumptech.glide.gifdecoder.GifDecoder.TOTAL_ITERATION_COUNT_FOREVER;
+
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -11,7 +12,6 @@ import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.drawable.Animatable;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.support.annotation.VisibleForTesting;
 import android.view.Gravity;
 import com.bumptech.glide.Glide;
@@ -154,6 +154,15 @@ public class GifDrawable extends Drawable implements GifFrameLoader.FrameCallbac
     loopCount = 0;
   }
 
+  /**
+   * Starts the animation from the first frame. Can only be called while animation is not running.
+   */
+  public void startFromFirstFrame() {
+    Preconditions.checkArgument(!isRunning, "You cannot restart a currently running animation.");
+    state.frameLoader.setNextStartFromFirstFrame();
+    start();
+  }
+
   @Override
   public void start() {
     isStarted = true;
@@ -273,10 +282,9 @@ public class GifDrawable extends Drawable implements GifFrameLoader.FrameCallbac
     return PixelFormat.TRANSPARENT;
   }
 
-  @TargetApi(Build.VERSION_CODES.HONEYCOMB)
   @Override
   public void onFrameReady() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB && getCallback() == null) {
+    if (getCallback() == null) {
       stop();
       invalidateSelf();
       return;
@@ -318,7 +326,9 @@ public class GifDrawable extends Drawable implements GifFrameLoader.FrameCallbac
     }
 
     if (loopCount == LOOP_INTRINSIC) {
-      maxLoopCount = state.frameLoader.getLoopCount();
+      int intrinsicCount = state.frameLoader.getLoopCount();
+      maxLoopCount =
+          (intrinsicCount == TOTAL_ITERATION_COUNT_FOREVER) ? LOOP_FOREVER : intrinsicCount;
     } else {
       maxLoopCount = loopCount;
     }

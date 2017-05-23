@@ -30,12 +30,11 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
+import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
-import org.robolectric.util.ActivityController;
 
 @RunWith(RobolectricTestRunner.class)
 @Config(manifest = Config.NONE, sdk = 18, shadows = GlideShadowLooper.class)
-@TargetApi(Build.VERSION_CODES.HONEYCOMB)
 public class RequestManagerRetrieverTest {
   private static final String PARENT_TAG = "parent";
   private RetrieverHarness[] harnesses;
@@ -44,7 +43,7 @@ public class RequestManagerRetrieverTest {
 
   @Before
   public void setUp() {
-    retriever = new RequestManagerRetriever();
+    retriever = new RequestManagerRetriever(null /*factory*/);
 
     harnesses =
         new RetrieverHarness[] { new DefaultRetrieverHarness(), new SupportRetrieverHarness() };
@@ -165,7 +164,6 @@ public class RequestManagerRetrieverTest {
     helpTestCanGetRequestManagerFromDetachedFragment();
   }
 
-  @TargetApi(Build.VERSION_CODES.HONEYCOMB_MR2)
   private void helpTestCanGetRequestManagerFromDetachedFragment() {
     Activity activity = Robolectric.buildActivity(Activity.class).create().start().resume().get();
     android.app.Fragment fragment = new android.app.Fragment();
@@ -206,7 +204,7 @@ public class RequestManagerRetrieverTest {
     retriever.get(fragment);
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = NullPointerException.class)
   public void testThrowsIfSupportFragmentNotAttached() {
     Fragment fragment = new Fragment();
     retriever.get(fragment);
@@ -307,16 +305,6 @@ public class RequestManagerRetrieverTest {
   }
 
   @Test
-  public void testDoesNotThrowIfAskedToGetManagerForActivityPreHoneycomb() {
-    Util.setSdkVersionInt(Build.VERSION_CODES.GINGERBREAD_MR1);
-    Activity activity = mock(Activity.class);
-    when(activity.getApplicationContext()).thenReturn(RuntimeEnvironment.application);
-    when(activity.getFragmentManager()).thenThrow(new NoSuchMethodError());
-
-    assertNotNull(retriever.get(activity));
-  }
-
-  @Test
   @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
   public void testDoesNotThrowIfAskedToGetManagerForActivityPreJellYBeanMr1() {
     Util.setSdkVersionInt(Build.VERSION_CODES.JELLY_BEAN);
@@ -325,20 +313,6 @@ public class RequestManagerRetrieverTest {
     when(spyActivity.isDestroyed()).thenThrow(new NoSuchMethodError());
 
     assertNotNull(retriever.get(spyActivity));
-  }
-
-  @Test
-  @TargetApi(Build.VERSION_CODES.HONEYCOMB_MR2)
-  public void testDoesNotThrowIfAskedToGetManagerForFragmentPreHoneyCombMr2() {
-    Util.setSdkVersionInt(Build.VERSION_CODES.HONEYCOMB_MR1);
-    Activity activity = Robolectric.buildActivity(Activity.class).create().start().resume().get();
-    android.app.Fragment fragment = new android.app.Fragment();
-
-    activity.getFragmentManager().beginTransaction().add(fragment, "test").commit();
-    android.app.Fragment spyFragment = Mockito.spy(fragment);
-    when(spyFragment.isDetached()).thenThrow(new NoSuchMethodError());
-
-    assertNotNull(retriever.get(spyFragment));
   }
 
   @Test
